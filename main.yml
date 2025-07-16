@@ -1,0 +1,62 @@
+# .github/workflows/update-config-to-gist.yml
+name: Update Clash hosts & publish config
+
+# 在这里调整你的触发时间
+on:
+  schedule:
+    - cron: '0 */5 * * *'    # 每隔5H触发一次
+  workflow_dispatch:       # 允许手动触发
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. 拉取仓库代码
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # 2. 安装 Go 版 yq
+      - name: Install yq (v4+)
+        run: |
+          YQ_VERSION=4.46.1
+          wget -q https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}/yq_linux_amd64 -O yq
+          chmod +x yq
+          sudo mv yq /usr/bin/
+      # 3.1. 拉取 10007 reward 文件
+      - name: Checkout reward source repo
+        uses: actions/checkout@v3
+        with:
+          repository: lingeringsound/10007
+          token: ${{ secrets.GITHUB_TOKEN }}   # 默认就有权限拉公 repo
+          path: reward_source
+          ref: main
+
+      # 3.2. 用本地脚本处理reward host 到clash host
+      - name: Generate adhost.yaml from checked-out file
+        run: |
+          cat reward_source/reward \
+            | bash adhost.sh > adhost.yaml
+      # 4.1 检测yaml
+      - name: Checkout adhost.yaml
+        run: |
+          yq eval '.' adhost.yaml
+      # 4.2 用 yq 更新 config.yaml
+      - name: Update config.yaml with hosts & DNS
+        run: |
+          yq eval -i '
+            .hosts               = load("adhost.yaml") |
+            .dns.enable          = true            |
+            .dns."use-hosts"     = false
+          ' config.yaml
+
+      # 5. 发布到固定 Gist
+      - name: Publish updated config.yaml to Gist
+        uses: exuanbo/actions-deploy-gist@v1      # v1.1.4 同步到最新
+        with:
+          gist_id:       # 你的 Gist ID
+          token:      # 需有 gist 权限
+          gist_description: "Clash 配置（定时更新 hosts）"     # 可选，更新 Gist 的描述
+          gist_file_name:   "config.yaml"                    # 可选，Gist 中文件名
+          file_path:        "config.yaml"                    # 必填，仓库中要同步的文件路径
+          file_type:        "text"                           # 可选，文件类型（text 或 binary）
